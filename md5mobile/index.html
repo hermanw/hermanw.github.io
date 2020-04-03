@@ -72,9 +72,7 @@
       updateProgress();
       output = document.getElementById('output');
       results[e.data.i]={hash:e.data.hash, mobile:e.data.mobile};
-      newline = e.data.hash +","+ e.data.mobile + "\n";
-      output.value += newline;
-      output.scrollTop = output.scrollHeight;
+      output.value = e.data.hash +","+ e.data.mobile + "\n";
 
       if (finished == hash_count) {
         // update output
