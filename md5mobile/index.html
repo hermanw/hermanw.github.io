@@ -12,6 +12,7 @@
   <div>paste md5 hashes here:(comma separated)</div>
   <textarea id='input' cols="80" rows="8"></textarea>
   <br><button onclick="decode()">decode</button><span> with <input id="thread_num"></input> threads</span>
+  <br><progress id="bar" hidden='true' value="0" max="1"></progress>
   <br><label id='progress' hidden='true'></label>
   <br><textarea id='output' hidden='true' readonly='true' cols="80" rows="8"></textarea>
   <script src="wasm.js"></script>
@@ -37,9 +38,11 @@
       input = document.getElementById("input").value;
       output = document.getElementById('output');
       progress = document.getElementById('progress');
+      bar = document.getElementById('bar');
       output.hidden = false;
       output.value = "";
       progress.hidden = false;
+      bar.hidden = false;
 
       hash_count = validate(input);
       if (hash_count < 1) {
@@ -91,6 +94,9 @@
 
     function updateProgress() {
       progress = document.getElementById('progress');
+      bar = document.getElementById('bar');
+      bar.max = hash_count;
+      bar.value = finished;
       if (finished < hash_count) {
         progress.innerText = "working... " + finished + "/" + hash_count + " are decoded";
       } else {
