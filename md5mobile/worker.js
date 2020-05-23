@@ -17,4 +17,5 @@ function decode(data) {
     buf = newString(Module, data.input);
     Module.decode(buf, thread_num, threadid);
     Module.dealloc_str(buf);
+    postMessage({i:threadid, hash:"", mobile:""});
 }

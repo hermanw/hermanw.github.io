@@ -20,6 +20,7 @@
     var thread_num = window.navigator.hardwareConcurrency;
     document.getElementById("thread_num").value = thread_num;
     var workers = [];
+    var stopped_workers = 0;
     var results = [];
     var hash_count = 0;
     var finished = 0;
@@ -53,6 +54,7 @@
 
       // start workers
       finished = 0;
+      stopped_workers = 0;
       updateProgress();
       if (workers.length == 0) {
         t = document.getElementById("thread_num");
@@ -71,24 +73,27 @@
     }
 
     function onProgress(e) {
-      finished += 1;
+      if(e.data.mobile.length == 0) {
+        stopped_workers += 1;
+      } else {
+        finished += 1;
+        output = document.getElementById('output');
+        results[e.data.i]={hash:e.data.hash, mobile:e.data.mobile};
+        output.value = e.data.hash +","+ e.data.mobile + "\n";
+      }
       updateProgress();
-      output = document.getElementById('output');
-      results[e.data.i]={hash:e.data.hash, mobile:e.data.mobile};
-      output.value = e.data.hash +","+ e.data.mobile + "\n";
 
       if (finished == hash_count) {
         // update output
-        output.value = "";
-        for (i = 0; i < hash_count; i++) {
-          newline = results[i].hash +","+ results[i].mobile + "\n";
-          output.value += newline;
-        }
+        output_results();
         // stop workers
         for (i = 0; i < thread_num; i++) {
           workers[i].terminate();
         }
         workers = [];
+      }
+      if (stopped_workers == thread_num) {
+        output_results();
       }
     }
 
@@ -97,11 +102,24 @@
       bar = document.getElementById('bar');
       bar.max = hash_count;
       bar.value = finished;
-      if (finished < hash_count) {
+      if (finished < hash_count && stopped_workers < thread_num) {
         progress.innerText = "working... " + finished + "/" + hash_count + " are decoded";
       } else {
         cost = (new Date() - startTime) / 1000;
         progress.innerText = "completed in " + cost + "seconds.";
+      }
+    }
+
+    function output_results() {
+      output = document.getElementById('output');
+      output.value = "";
+      for (i = 0; i < hash_count; i++) {
+        if(typeof results[i] === 'undefined') {
+          output.value += "0,0\n";
+        } else {
+          newline = results[i].hash +","+ results[i].mobile + "\n";
+          output.value += newline;
+        }
       }
     }
   </script>
