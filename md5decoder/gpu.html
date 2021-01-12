@@ -1,0 +1,352 @@
+<!doctype html>
+
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>MD5 Decoder</title>
+</head>
+
+<body>
+  <h2>MD5 Decoder - for China Mobile Number</h2>
+  <div>paste md5 hashes here:(comma separated)</div>
+  <textarea id='input' cols="80" rows="8"></textarea>
+  <br><button onclick="decode()">decode</button><span id='adapter'></span>
+  <br><label id='info' hidden='true'></label>
+  <br><progress id="bar_search" hidden='true' value="0" max="1"></progress>&nbsp;<label id='label_search'
+    hidden='true'></label>
+  <br><progress id="bar_complete" hidden='true' value="0" max="1"></progress>&nbsp;<label id='label_complete'
+    hidden='true'></label>
+  <br><textarea id='output' hidden='true' readonly='true' cols="80" rows="8"></textarea>
+  <script src="glsl_src.js"></script>
+  <script>
+    testGpu();
+
+    function yieldToBrowser() {
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () {
+          resolve();
+        }, 0);
+      });
+    }
+
+    async function updateProgress(prefix_len, prefix_progress, len, count, startTime) {
+      bar_search = document.getElementById('bar_search');
+      label_search = document.getElementById('label_search');
+      bar_complete = document.getElementById('bar_complete');
+      label_complete = document.getElementById('label_complete');
+      bar_search.hidden = false;
+      label_search.hidden = false;
+      bar_complete.hidden = false;
+      label_complete.hidden = false;
+      bar_search.max = prefix_len;
+      bar_search.value = prefix_progress;
+      bar_complete.max = len;
+      bar_complete.value = count;
+      cost = Math.round((new Date() - startTime) / 1000);
+      label_search.innerText = "searching complete " + Math.round(prefix_progress * 100 / prefix_len) + "%" + " in " + cost + " seconds";
+      label_complete.innerText = count + "/" + len + " are decoded";
+      await yieldToBrowser();
+    }
+
+    async function testGpu() {
+      if (!navigator.gpu) {
+        document.getElementById('adapter').innerHTML = "...WebGPU not supported by your browser. Please try <a href='https://www.google.com/chrome/canary/'>Chrome Canary</a>.";
+      } else {
+        const adapter = await navigator.gpu.requestAdapter();
+        document.getElementById('adapter').innerHTML = "--> using GPU: <b>" + adapter.name + "</b>";
+      }
+    }
+
+    function progressHashString(input) {
+      var hashes = [];
+      input.split(',').forEach(element => {
+        var e = element.trim();
+        if (e.length == 32) {
+          hashes.push(e);
+        }
+      });
+      return hashes;
+    }
+
+    function compareHash(shArray, a, b) {
+      for (var i = 0; i < 16; i++) {
+        if (shArray[a * 16 + i] < shArray[b * 16 + i]) {
+          return -1;
+        }
+        else if (shArray[a * 16 + i] > shArray[b * 16 + i]) {
+          return 1;
+        }
+      }
+
+      return 0;
+    }
+
+    function exchangeHash(shArray, a, b) {
+      for (var i = 0; i < 16; i++) {
+        var temp = shArray[a * 16 + i];
+        shArray[a * 16 + i] = shArray[b * 16 + i];
+        shArray[b * 16 + i] = temp;
+      }
+    }
+
+    function quickSort(shArray, indexArray, from, to) {
+      if (from >= to) return;
+      var i = from;
+      for (var j = from + 1; j <= to; j++) {
+        if (compareHash(shArray, j, from) < 0) {
+          i = i + 1;
+          exchangeHash(shArray, i, j);
+          var temp = indexArray[i];
+          indexArray[i] = indexArray[j];
+          indexArray[j] = temp;
+        }
+      }
+      exchangeHash(shArray, i, from);
+      var temp = indexArray[i];
+      indexArray[i] = indexArray[from];
+      indexArray[from] = temp;
+
+      quickSort(shArray, indexArray, from, i - 1);
+      quickSort(shArray, indexArray, i + 1, to);
+    }
+
+    function dedupSortedHash(shArray, indexArray, indexDedupArray) {
+      var dedup_len = indexArray.length;
+      for (var i = 1; i < dedup_len; i++) {
+        if (compareHash(shArray, i, i - 1) == 0) {
+          var temp_index = indexArray[i];
+          var temp_index_dup = indexArray[i - 1];
+          for (var j = i; j < indexArray.length - 1; j++) {
+            exchangeHash(shArray, j, j + 1);
+            indexArray[j] = indexArray[j + 1];
+            indexDedupArray[j] = indexDedupArray[j + 1];
+          }
+          indexArray[indexArray.length - 1] = temp_index
+          indexDedupArray[indexArray.length - 1] = temp_index_dup;
+          dedup_len--;
+          i--;
+        }
+      }
+      return dedup_len;
+    }
+
+    function sortHash(hashes) {
+      var len = hashes.length;
+      var shArray = new Uint8Array(16 * len);
+      var indexArray = new Uint32Array(len);
+      var indexDedupArray = new Uint32Array(len);
+      for (let j = 0; j < len; j++) {
+        indexArray[j] = j;
+        for (let i = 0; i < 16; i++) {
+          shArray[j * 16 + i] = parseInt(hashes[j].substr(i * 2, 2), 16);
+        }
+      }
+      // quick sort
+      quickSort(shArray, indexArray, 0, len - 1);
+      var dedup_len = dedupSortedHash(shArray, indexArray, indexDedupArray);
+      return [shArray, indexArray, indexDedupArray, dedup_len];
+    }
+
+    async function decode() {
+      if (!navigator.gpu) {
+        return;
+      }
+
+      // process inputs
+      var hashes = progressHashString(document.getElementById("input").value);
+      const [shArray, indexArray, indexDedupArray, dedup_len] = sortHash(hashes);
+
+      info = document.getElementById('info');
+      info.hidden = false;
+      info.innerText = "find " + dedup_len + " valid unique hashes";
+      output = document.getElementById('output');
+      output.hidden = true;
+
+      // Initialize WebGPU
+      const adapter = await navigator.gpu.requestAdapter();
+      const device = await adapter.requestDevice();
+
+      // Compile the GPU program
+      const glslangModule = await import("https://unpkg.com/@webgpu/glslang@0.0.15/dist/web-devel/glslang.js");
+      const glslang = await glslangModule.default();
+      const computeShaderCode = glslang.compileGLSL(glslSource, "compute");
+      const computePipeline = device.createComputePipeline({
+        computeStage: {
+          module: device.createShaderModule({
+            code: computeShaderCode
+          }),
+          entryPoint: "main"
+        }
+      });
+
+      // Allocate GPU buffer
+      // 0. SortedHash
+      const bufHash = device.createBuffer({
+        size: 16 * dedup_len,
+        usage: GPUBufferUsage.STORAGE,
+        mappedAtCreation: true,
+      });
+      new Uint8Array(bufHash.getMappedRange()).set(shArray.slice(0, 16 * dedup_len));
+      bufHash.unmap();
+      // 1. mobile data
+      const bufData = device.createBuffer({
+        size: 12 * dedup_len,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      });
+      const bufDataRead = device.createBuffer({
+        size: 12 * dedup_len,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      // 2. numbers
+      const numbersSize = 10000;
+      const numbersArray = new Uint8Array(numbersSize * 4);
+      for (let i = 0; i < numbersSize; i++) {
+        numbersArray[i * 4] = i / 1000 + 48;
+        numbersArray[i * 4 + 1] = i / 100 % 10 + 48;
+        numbersArray[i * 4 + 2] = i / 10 % 10 + 48;
+        numbersArray[i * 4 + 3] = i % 10 + 48;
+      }
+      const bufNumbers = device.createBuffer({
+        size: numbersSize * 4,
+        usage: GPUBufferUsage.STORAGE,
+        mappedAtCreation: true,
+      });
+      new Uint8Array(bufNumbers.getMappedRange()).set(numbersArray);
+      bufNumbers.unmap();
+      // 3. params
+      const bufParams = device.createBuffer({
+        size: 20,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+      });
+      const bufParamsWrite = device.createBuffer({
+        size: 20,
+        usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC
+      });
+      const bufParamsRead = device.createBuffer({
+        size: 20,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+      });
+
+      // Bind data group
+      const bindGroup = device.createBindGroup({
+        layout: computePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: bufHash } },
+          { binding: 1, resource: { buffer: bufData } },
+          { binding: 2, resource: { buffer: bufNumbers } },
+          { binding: 3, resource: { buffer: bufParams } }
+        ]
+      });
+
+      const PREFIX_LIST = [
+        '186', '158', '135', '159',
+        '136', '150', '137', '138',
+        '187', '151', '182', '152',
+        '139', '183', '188', '134',
+        '185', '189', '180', '157',
+        '155', '156', '131', '132',
+        '133', '130', '181', '176',
+        '177', '153', '184', '178',
+        '173', '147', '175', '199',
+        '166', '170', '198', '171',
+        '191', '145', '165', '172',
+        '154', '146'
+      ];
+      // const PREFIX_LIST = [
+      //   '186', '158'
+      // ];  
+      startTime = new Date();
+      var count = 0;
+      await updateProgress(PREFIX_LIST.length, 0, dedup_len, count, startTime);
+      for (var i = 0; i < PREFIX_LIST.length; i++) {
+        if (count == dedup_len) {
+          break;
+        }
+        const prefix = PREFIX_LIST[i];
+
+        // Encode the compute commands.
+        const commandEncoder = device.createCommandEncoder();
+        // write params
+        await bufParamsWrite.mapAsync(GPUMapMode.WRITE);
+        new Uint32Array(bufParamsWrite.getMappedRange()).set([dedup_len, count, prefix.charCodeAt(0), prefix.charCodeAt(1), prefix.charCodeAt(2)]);
+        bufParamsWrite.unmap();
+        commandEncoder.copyBufferToBuffer(
+          bufParamsWrite,
+          0,
+          bufParams,
+          0,
+          20
+        );
+
+        const passEncoder = commandEncoder.beginComputePass();
+        passEncoder.setPipeline(computePipeline);
+        passEncoder.setBindGroup(0, bindGroup);
+        passEncoder.dispatch(
+          10000,
+          10000
+        );
+        passEncoder.endPass();
+
+        // read params
+        commandEncoder.copyBufferToBuffer(
+          bufParams,
+          0,
+          bufParamsRead,
+          0,
+          20
+        );
+
+        // Submit work to the GPU.
+        const gpuCommands = commandEncoder.finish();
+        device.defaultQueue.submit([gpuCommands]);
+
+        // read result
+        await bufParamsRead.mapAsync(GPUMapMode.READ);
+        count = new Uint32Array(bufParamsRead.getMappedRange())[1];
+        bufParamsRead.unmap();
+
+        await updateProgress(PREFIX_LIST.length, i+1, dedup_len, count, startTime);
+      };
+
+      // read data
+      const commandEncoder = device.createCommandEncoder();
+      commandEncoder.copyBufferToBuffer(
+        bufData,
+        0,
+        bufDataRead,
+        0,
+        12 * dedup_len
+      );
+      const gpuCommands = commandEncoder.finish();
+      device.defaultQueue.submit([gpuCommands]);
+
+      await bufDataRead.mapAsync(GPUMapMode.READ);
+      const result = new Uint8Array(new ArrayBuffer(12 * dedup_len));
+      result.set(new Uint8Array(bufDataRead.getMappedRange()));
+      bufDataRead.unmap();
+
+      var resultArray = Array.from('0'.repeat(hashes.length));
+      for (i = 0; i < hashes.length; i++) {
+        if (i < dedup_len) {
+          var mobile = '';
+          for (var j = 0; j < 11; j++) {
+            mobile += String.fromCharCode(result[i * 11 + j]);
+          }
+          resultArray[indexArray[i]] = mobile;
+        } else {
+          resultArray[indexArray[i]] = resultArray[indexDedupArray[i]];
+        }
+      }
+
+      // output
+      output.hidden = false;
+      output.value = "";
+      for (i = 0; i < hashes.length; i++) {
+        output.value += hashes[i] + "," + resultArray[i] + "\n";;
+      }
+    }
+  </script>
+</body>
+
+</html>
