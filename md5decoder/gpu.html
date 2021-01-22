@@ -70,11 +70,14 @@
     }
 
     function compareHash(shArray, a, b) {
-      for (var i = 0; i < 16; i++) {
-        if (shArray[a * 16 + i] < shArray[b * 16 + i]) {
+      var sh32 = new Uint32Array(shArray.buffer);
+      for (var i = 0; i < 4; i++) {
+        var va = sh32[a * 4 + i];
+        var vb = sh32[b * 4 + i];
+        if (va < vb) {
           return -1;
         }
-        else if (shArray[a * 16 + i] > shArray[b * 16 + i]) {
+        else if (va > vb) {
           return 1;
         }
       }
@@ -269,7 +272,12 @@
         const commandEncoder = device.createCommandEncoder();
         // write params
         await bufParamsWrite.mapAsync(GPUMapMode.WRITE);
-        new Uint32Array(bufParamsWrite.getMappedRange()).set([dedup_len, count, prefix.charCodeAt(0), prefix.charCodeAt(1), prefix.charCodeAt(2)]);
+        paramsArray = new Uint32Array(bufParamsWrite.getMappedRange());
+        paramsArray[0] = dedup_len;
+        paramsArray[1] = count;
+        paramsArray[2] = prefix.charCodeAt(0);
+        paramsArray[3] = prefix.charCodeAt(1);
+        paramsArray[4] = prefix.charCodeAt(2);
         bufParamsWrite.unmap();
         commandEncoder.copyBufferToBuffer(
           bufParamsWrite,
