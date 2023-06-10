@@ -14,15 +14,14 @@
 
 <body>
   <h2>MD5 Decoder - for China Mobile Number</h2>
-  <div>you can try a <a href="gpu.html">WebGPU decoder</a></div>
+  <div>you can try a <a href="gpu/gpu.html">WebGPU decoder</a></div>
   <div>paste md5 hashes here:(comma separated)</div>
   <textarea id='input' cols="80" rows="8"></textarea>
   <br><button onclick="decode()">decode</button><span> with <input id="thread_num"></input> threads</span>
   <br><progress id="bar" hidden='true' value="0" max="1"></progress>
   <br><label id='progress' hidden='true'></label>
   <br><textarea id='output' hidden='true' readonly='true' cols="80" rows="8"></textarea>
-  <script src="wasm.js"></script>
-  <script>
+  <script type="module">
     var thread_num = window.navigator.hardwareConcurrency;
     document.getElementById("thread_num").value = thread_num;
     var workers = [];
@@ -32,58 +31,55 @@
     var finished = 0;
     var startTime;
 
-    function validate(input) {
-      buf = newString(Module, input);
-      r = Module.validate(buf);
-      Module.dealloc_str(buf);
-      return r;
-    }
-
-    function decode() {
+    window.decode = function decode() {
       startTime = new Date();
-      // validate input
-      input = document.getElementById("input").value;
-      output = document.getElementById('output');
-      progress = document.getElementById('progress');
-      bar = document.getElementById('bar');
+
+      var input = document.getElementById("input").value;
+      var output = document.getElementById('output');
+      var progress = document.getElementById('progress');
+      var bar = document.getElementById('bar');
       output.hidden = false;
       output.value = "";
       progress.hidden = false;
       bar.hidden = false;
-
-      hash_count = validate(input);
-      if (hash_count < 1) {
-        progress.innerText = "no inputs";
-        return;
-      }
-      results = new Array(hash_count);
 
       // start workers
       finished = 0;
       stopped_workers = 0;
       updateProgress();
       if (workers.length == 0) {
-        t = document.getElementById("thread_num");
+        let t = document.getElementById("thread_num");
         thread_num = t.value;
         t.readonly = true;
         workers = new Array(thread_num);
         for (i = 0; i < thread_num; i++) {
-          workers[i] = new Worker("worker.js");
+          workers[i] = new Worker("worker.js", { type: "module" });
           workers[i].onmessage = onProgress;
         }
       }
       // send decode instruction
-      for (i = 0; i < thread_num; i++) {
+      for (var i = 0; i < thread_num; i++) {
         workers[i].postMessage({ 'thread_num': thread_num, 'threadid': i, 'input': input });
       }
     }
 
     function onProgress(e) {
+      if(e.data.hash_count != undefined) {
+        hash_count = e.data.hash_count;
+        if (hash_count < 1) {
+          progress.innerText = "no inputs";
+          return;
+        } else if(results.length === 0) {
+          results = new Array(hash_count);
+        }
+        return;
+      }
+
       if(e.data.mobile.length == 0) {
         stopped_workers += 1;
       } else {
         finished += 1;
-        output = document.getElementById('output');
+        var output = document.getElementById('output');
         results[e.data.i]={hash:e.data.hash, mobile:e.data.mobile};
         output.value = e.data.hash +","+ e.data.mobile + "\n";
       }
@@ -93,7 +89,7 @@
         // update output
         output_results();
         // stop workers
-        for (i = 0; i < thread_num; i++) {
+        for (var i = 0; i < thread_num; i++) {
           workers[i].terminate();
         }
         workers = [];
@@ -104,30 +100,31 @@
     }
 
     function updateProgress() {
-      progress = document.getElementById('progress');
-      bar = document.getElementById('bar');
+      var progress = document.getElementById('progress');
+      var bar = document.getElementById('bar');
       bar.max = hash_count;
       bar.value = finished;
       if (finished < hash_count && stopped_workers < thread_num) {
         progress.innerText = "working... " + finished + "/" + hash_count + " are decoded";
       } else {
-        cost = (new Date() - startTime) / 1000;
+        var cost = (new Date() - startTime) / 1000;
         progress.innerText = "completed in " + cost + "seconds.";
       }
     }
 
     function output_results() {
-      output = document.getElementById('output');
+      var output = document.getElementById('output');
       output.value = "";
-      for (i = 0; i < hash_count; i++) {
+      for (var i = 0; i < hash_count; i++) {
         if(typeof results[i] === 'undefined') {
           output.value += "0,0\n";
         } else {
-          newline = results[i].hash +","+ results[i].mobile + "\n";
+          var newline = results[i].hash +","+ results[i].mobile + "\n";
           output.value += newline;
         }
       }
     }
+
   </script>
 </body>
 
