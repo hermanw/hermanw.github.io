@@ -67,7 +67,12 @@
       if(e.data.hash_count != undefined) {
         hash_count = e.data.hash_count;
         if (hash_count < 1) {
-          progress.innerText = "no inputs";
+          progress.innerText = "no valid inputs";
+          // stop workers
+          for (var i = 0; i < workers.length; i++) {
+            workers[i].terminate();
+          }
+          workers = [];
           return;
         } else if(results.length === 0) {
           results = new Array(hash_count);
@@ -89,7 +94,7 @@
         // update output
         output_results();
         // stop workers
-        for (var i = 0; i < thread_num; i++) {
+        for (var i = 0; i < workers.length; i++) {
           workers[i].terminate();
         }
         workers = [];
