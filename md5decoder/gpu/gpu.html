@@ -175,19 +175,6 @@
       const adapter = await navigator.gpu.requestAdapter();
       const device = await adapter.requestDevice();
 
-      // Compile the GPU program
-      const glslangModule = await import("https://unpkg.com/@webgpu/glslang@0.0.15/dist/web-devel/glslang.js");
-      const glslang = await glslangModule.default();
-      const computeShaderCode = glslang.compileGLSL(glslSource, "compute");
-      const computePipeline = device.createComputePipeline({
-        computeStage: {
-          module: device.createShaderModule({
-            code: computeShaderCode
-          }),
-          entryPoint: "main"
-        }
-      });
-
       // Allocate GPU buffer
       // 0. SortedHash
       const bufHash = device.createBuffer({
@@ -237,14 +224,62 @@
       });
 
       // Bind data group
+      const bindGroupLayout = device.createBindGroupLayout({
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: {
+              type: "read-only-storage"
+            }
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: {
+              type: "storage"
+            }
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: {
+              type: "read-only-storage"
+            }
+          },
+          {
+            binding: 3,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: {
+              type: "read-only-storage"
+            }
+          }
+        ]
+      });
       const bindGroup = device.createBindGroup({
-        layout: computePipeline.getBindGroupLayout(0),
+        layout: bindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: bufHash } },
           { binding: 1, resource: { buffer: bufData } },
           { binding: 2, resource: { buffer: bufNumbers } },
           { binding: 3, resource: { buffer: bufParams } }
         ]
+      });
+
+      // Compile the GPU program
+      const glslangModule = await import("https://unpkg.com/@webgpu/glslang@0.0.15/dist/web-devel/glslang.js");
+      const glslang = await glslangModule.default();
+      const computeShaderCode = glslang.compileGLSL(glslSource, "compute");
+      const computePipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [bindGroupLayout]
+        }),
+        compute: {
+          module: device.createShaderModule({
+            code: computeShaderCode
+          }),
+          entryPoint: "main"
+        }
       });
 
       const PREFIX_LIST = [
@@ -295,11 +330,11 @@
         const passEncoder = commandEncoder.beginComputePass();
         passEncoder.setPipeline(computePipeline);
         passEncoder.setBindGroup(0, bindGroup);
-        passEncoder.dispatch(
+        passEncoder.dispatchWorkgroups(
           10000,
           10000
         );
-        passEncoder.endPass();
+        passEncoder.end();
 
         // read params
         commandEncoder.copyBufferToBuffer(
@@ -312,7 +347,7 @@
 
         // Submit work to the GPU.
         const gpuCommands = commandEncoder.finish();
-        device.defaultQueue.submit([gpuCommands]);
+        device.queue.submit([gpuCommands]);
 
         // read result
         await bufParamsRead.mapAsync(GPUMapMode.READ);
@@ -332,7 +367,7 @@
         12 * dedup_len
       );
       const gpuCommands = commandEncoder.finish();
-      device.defaultQueue.submit([gpuCommands]);
+      device.queue.submit([gpuCommands]);
 
       await bufDataRead.mapAsync(GPUMapMode.READ);
       const result = new Uint8Array(new ArrayBuffer(12 * dedup_len));
