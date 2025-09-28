@@ -10,6 +10,7 @@
     }
   </style>
   <title>MD5 Decoder</title>
+  <script src="glsl_src.js"></script>
 </head>
 
 <body>
@@ -23,9 +24,22 @@
   <br><progress id="bar_complete" hidden='true' value="0" max="1"></progress>&nbsp;<label id='label_complete'
     hidden='true'></label>
   <br><textarea id='output' hidden='true' readonly='true' cols="80" rows="8"></textarea>
-  <script src="glsl_src.js"></script>
   <script>
+    var adapter;
+    var device;
     testGpu();
+
+    async function testGpu() {
+      if (!navigator.gpu) {
+        document.getElementById('adapter').innerHTML = "...WebGPU not supported by your browser.";
+      } else {
+        adapter = await navigator.gpu.requestAdapter({
+          powerPreference: 'high-performance'
+        });
+        device = await adapter.requestDevice();
+        document.getElementById('adapter').innerHTML = " using GPU.";
+      }
+    }
 
     function yieldToBrowser() {
       return new Promise(function (resolve, reject) {
@@ -36,10 +50,10 @@
     }
 
     async function updateProgress(prefix_len, prefix_progress, len, count, startTime) {
-      bar_search = document.getElementById('bar_search');
-      label_search = document.getElementById('label_search');
-      bar_complete = document.getElementById('bar_complete');
-      label_complete = document.getElementById('label_complete');
+      const bar_search = document.getElementById('bar_search');
+      const label_search = document.getElementById('label_search');
+      const bar_complete = document.getElementById('bar_complete');
+      const label_complete = document.getElementById('label_complete');
       bar_search.hidden = false;
       label_search.hidden = false;
       bar_complete.hidden = false;
@@ -48,19 +62,10 @@
       bar_search.value = prefix_progress;
       bar_complete.max = len;
       bar_complete.value = count;
-      cost = Math.round((new Date() - startTime) / 1000);
+      const cost = Math.round((new Date() - startTime) / 1000);
       label_search.innerText = "searching complete " + Math.round(prefix_progress * 100 / prefix_len) + "%" + " in " + cost + " seconds";
       label_complete.innerText = count + "/" + len + " are decoded";
       await yieldToBrowser();
-    }
-
-    async function testGpu() {
-      if (!navigator.gpu) {
-        document.getElementById('adapter').innerHTML = "...WebGPU not supported by your browser. Please try <a href='https://www.google.com/chrome/canary/'>Chrome Canary</a>.";
-      } else {
-        const adapter = await navigator.gpu.requestAdapter();
-        document.getElementById('adapter').innerHTML = "--> using GPU: <b>" + adapter.name + "</b>";
-      }
     }
 
     function progressHashString(input) {
@@ -161,19 +166,33 @@
         return;
       }
 
+      // Get all UI elements
+      const info = document.getElementById('info');
+      const output = document.getElementById('output');
+      const bar_search = document.getElementById('bar_search');
+      const label_search = document.getElementById('label_search');
+      const bar_complete = document.getElementById('bar_complete');
+      const label_complete = document.getElementById('label_complete');
+
       // process inputs
-      var hashes = progressHashString(document.getElementById("input").value);
+      const hashes = progressHashString(document.getElementById("input").value);
+
+      if (hashes.length === 0) {
+        info.hidden = false;
+        info.innerText = "Please enter at least one valid 32-character MD5 hash.";
+        output.hidden = true;
+        bar_search.hidden = true;
+        label_search.hidden = true;
+        bar_complete.hidden = true;
+        label_complete.hidden = true;
+        return;
+      }
+
       const [shArray, indexArray, indexDedupArray, dedup_len] = sortHash(hashes);
 
-      info = document.getElementById('info');
       info.hidden = false;
       info.innerText = "find " + dedup_len + " valid unique hashes";
-      output = document.getElementById('output');
       output.hidden = true;
-
-      // Initialize WebGPU
-      const adapter = await navigator.gpu.requestAdapter();
-      const device = await adapter.requestDevice();
 
       // Allocate GPU buffer
       // 0. SortedHash
@@ -186,11 +205,11 @@
       bufHash.unmap();
       // 1. mobile data
       const bufData = device.createBuffer({
-        size: 12 * dedup_len,
+        size: 16 * dedup_len,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
       });
       const bufDataRead = device.createBuffer({
-        size: 12 * dedup_len,
+        size: 16 * dedup_len,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
       // 2. numbers
@@ -251,7 +270,7 @@
             binding: 3,
             visibility: GPUShaderStage.COMPUTE,
             buffer: {
-              type: "read-only-storage"
+              type: "storage"
             }
           }
         ]
@@ -266,18 +285,17 @@
         ]
       });
 
-      // Compile the GPU program
-      const glslangModule = await import("https://unpkg.com/@webgpu/glslang@0.0.15/dist/web-devel/glslang.js");
-      const glslang = await glslangModule.default();
-      const computeShaderCode = glslang.compileGLSL(glslSource, "compute");
+      // Compute shader code
+      const shaderModule = device.createShaderModule({
+        code: wgslSource
+      });
+
       const computePipeline = device.createComputePipeline({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [bindGroupLayout]
         }),
         compute: {
-          module: device.createShaderModule({
-            code: computeShaderCode
-          }),
+          module: shaderModule,
           entryPoint: "main"
         }
       });
@@ -299,10 +317,10 @@
       // const PREFIX_LIST = [
       //   '186', '158'
       // ];  
-      startTime = new Date();
-      var count = 0;
+      const startTime = new Date();
+      let count = 0;
       await updateProgress(PREFIX_LIST.length, 0, dedup_len, count, startTime);
-      for (var i = 0; i < PREFIX_LIST.length; i++) {
+      for (let i = 0; i < PREFIX_LIST.length; i++) {
         if (count == dedup_len) {
           break;
         }
@@ -312,7 +330,7 @@
         const commandEncoder = device.createCommandEncoder();
         // write params
         await bufParamsWrite.mapAsync(GPUMapMode.WRITE);
-        paramsArray = new Uint32Array(bufParamsWrite.getMappedRange());
+        const paramsArray = new Uint32Array(bufParamsWrite.getMappedRange());
         paramsArray[0] = dedup_len;
         paramsArray[1] = count;
         paramsArray[2] = prefix.charCodeAt(0);
@@ -331,8 +349,8 @@
         passEncoder.setPipeline(computePipeline);
         passEncoder.setBindGroup(0, bindGroup);
         passEncoder.dispatchWorkgroups(
-          10000,
-          10000
+          625, // 10000 / 16
+          625  // 10000 / 16
         );
         passEncoder.end();
 
@@ -364,22 +382,22 @@
         0,
         bufDataRead,
         0,
-        12 * dedup_len
+        16 * dedup_len
       );
       const gpuCommands = commandEncoder.finish();
       device.queue.submit([gpuCommands]);
 
       await bufDataRead.mapAsync(GPUMapMode.READ);
-      const result = new Uint8Array(new ArrayBuffer(12 * dedup_len));
+      const result = new Uint8Array(new ArrayBuffer(16 * dedup_len));
       result.set(new Uint8Array(bufDataRead.getMappedRange()));
       bufDataRead.unmap();
 
-      var resultArray = Array.from('0'.repeat(hashes.length));
-      for (i = 0; i < hashes.length; i++) {
+      const resultArray = new Array(hashes.length).fill('');
+      for (let i = 0; i < hashes.length; i++) {
         if (i < dedup_len) {
-          var mobile = '';
-          for (var j = 0; j < 11; j++) {
-            mobile += String.fromCharCode(result[i * 11 + j]);
+          let mobile = '';
+          for (let j = 0; j < 11; j++) {
+            mobile += String.fromCharCode(result[i * 16 + j]);
           }
           resultArray[indexArray[i]] = mobile;
         } else {
@@ -390,8 +408,8 @@
       // output
       output.hidden = false;
       output.value = "";
-      for (i = 0; i < hashes.length; i++) {
-        output.value += hashes[i] + "," + resultArray[i] + "\n";;
+      for (let i = 0; i < hashes.length; i++) {
+        output.value += hashes[i] + "," + resultArray[i] + "\n";
       }
     }
   </script>
