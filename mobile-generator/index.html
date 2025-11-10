@@ -1,0 +1,192 @@
+<!doctype html>
+
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: Verdana, sans-serif;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      margin: 20px 0;
+    }
+    .output-container {
+      display: flex;
+      gap: 20px;
+      margin: 20px 0;
+    }
+    .output-box {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .output-box label {
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    textarea {
+      font-family: monospace;
+      width: 100%;
+      min-height: 300px;
+      resize: vertical;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 14px;
+      margin: 5px;
+    }
+    input[type="number"] {
+      width: 100px;
+      padding: 5px;
+    }
+    .controls {
+      margin: 20px 0;
+    }
+    .info {
+      margin: 10px 0;
+      color: #666;
+    }
+    .button-group {
+      margin: 10px 0;
+    }
+  </style>
+  <title>Mobile Number Generator & MD5 Hasher</title>
+  
+  <!-- MD5 Library from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+</head>
+
+<body>
+  <h2>Chinese Mobile Number Generator & MD5 Hasher</h2>
+  <div class="info">Generate random Chinese mobile numbers and compute their MD5 hashes for testing the decoder.</div>
+  
+  <div class="container">
+    <div class="controls">
+      <label>Number of mobile numbers to generate: 
+        <input type="number" id="count" value="10" min="1" max="1000">
+      </label>
+      <br><br>
+      <div class="button-group">
+        <button onclick="generate()">Generate & Compute MD5</button>
+        <button onclick="clearResults()">Clear All</button>
+      </div>
+      <div class="button-group">
+        <button onclick="copyMobileNumbers()">Copy Mobile Numbers</button>
+        <button onclick="copyMD5Hashes()">Copy MD5 Hashes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="output-container">
+    <div class="output-box">
+      <label>Mobile Numbers:</label>
+      <textarea id='outputMobile' readonly='true' rows="15"></textarea>
+    </div>
+    <div class="output-box">
+      <label>MD5 Hashes:</label>
+      <textarea id='outputHash' readonly='true' rows="15"></textarea>
+    </div>
+  </div>
+
+  <div class="container">
+    <div><a href="../index.html">← Back to home</a></div>
+  </div>
+
+  <script>
+    const PREFIX_LIST = [
+      '186', '158', '135', '159',
+      '136', '150', '137', '138',
+      '187', '151', '182', '152',
+      '139', '183', '188', '134',
+      '185', '189', '180', '157',
+      '155', '156', '131', '132',
+      '133', '130', '181', '176',
+      '177', '153', '184', '178',
+      '173', '147', '175', '199',
+      '166', '170', '198', '171',
+      '191', '145', '165', '172',
+      '154', '146'
+    ];
+
+    function generateRandomMobile() {
+      // Random prefix
+      const prefix = PREFIX_LIST[Math.floor(Math.random() * PREFIX_LIST.length)];
+      
+      // Random 4-digit middle (0000-9999)
+      const middle = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+      
+      // Random 4-digit last (0000-9999)
+      const last = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+      
+      return prefix + middle + last;
+    }
+
+    function computeMD5(text) {
+      // Use CryptoJS library loaded from CDN
+      return CryptoJS.MD5(text).toString();
+    }
+
+    function generate() {
+      const countInput = document.getElementById('count');
+      const outputMobile = document.getElementById('outputMobile');
+      const outputHash = document.getElementById('outputHash');
+      const count = parseInt(countInput.value);
+      
+      if (isNaN(count) || count < 1 || count > 1000) {
+        alert('Please enter a valid number between 1 and 1000');
+        return;
+      }
+
+      const mobiles = [];
+      const hashes = [];
+
+      for (let i = 0; i < count; i++) {
+        const mobile = generateRandomMobile();
+        const hash = computeMD5(mobile);
+        mobiles.push(mobile);
+        hashes.push(hash);
+      }
+
+      outputMobile.value = mobiles.join(',\n');
+      outputHash.value = hashes.join(',\n');
+    }
+
+    function copyMobileNumbers() {
+      const outputMobile = document.getElementById('outputMobile');
+      // Remove newlines and extra spaces for comma-separated format
+      const text = outputMobile.value.replace(/\n/g, '').replace(/,\s*,/g, ',');
+      copyToClipboard(text);
+      alert('Mobile numbers copied to clipboard (comma separated)!');
+    }
+
+    function copyMD5Hashes() {
+      const outputHash = document.getElementById('outputHash');
+      // Remove newlines for comma-separated format (decoder input)
+      const text = outputHash.value.replace(/\n/g, '').replace(/,\s*,/g, ',');
+      copyToClipboard(text);
+      alert('MD5 hashes copied to clipboard! Ready to paste into decoder.');
+    }
+
+    function copyToClipboard(text) {
+      // Create a temporary textarea to copy the text
+      const temp = document.createElement('textarea');
+      temp.value = text;
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand('copy');
+      document.body.removeChild(temp);
+    }
+
+    function clearResults() {
+      document.getElementById('outputMobile').value = '';
+      document.getElementById('outputHash').value = '';
+    }
+  </script>
+</body>
+
+</html>
+
