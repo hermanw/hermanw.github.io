@@ -175,7 +175,7 @@
         const mobile = generateRandomMobile();
         let hash = "";
 
-        if (algorithm === "MD5") {
+        if (algorithm.toUpperCase() === "MD5") {
           hash = computeMD5(mobile);
         } else {
           hash = computeSHA256(mobile);

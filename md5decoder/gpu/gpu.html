@@ -9,13 +9,22 @@
       font-family: Verdana, sans-serif;
     }
   </style>
-  <title>MD5 Decoder</title>
+  <title>MD5/SHA256 Decoder</title>
   <script src="glsl_src.js"></script>
 </head>
 
 <body>
-  <h2>MD5 Decoder - for China Mobile Number</h2>
-  <div>paste md5 hashes here:(comma separated)</div>
+  <h2>MD5/SHA256 Decoder - for China Mobile Number</h2>
+  <div>
+    <label>Algorithm:
+      <select id="algorithm">
+        <option value="MD5">MD5</option>
+        <option value="SHA256">SHA256</option>
+      </select>
+    </label>
+  </div>
+  <br>
+  <div>paste hashes here:(comma separated)</div>
   <textarea id='input' cols="80" rows="8"></textarea>
   <br><button onclick="decode()">decode</button><span id='adapter'></span>
   <br><label id='info' hidden='true'></label>
@@ -68,22 +77,22 @@
       await yieldToBrowser();
     }
 
-    function progressHashString(input) {
+    function progressHashString(input, hashLength) {
       var hashes = [];
       input.split(',').forEach(element => {
         var e = element.trim();
-        if (e.length == 32) {
+        if (e.length == hashLength) {
           hashes.push(e);
         }
       });
       return hashes;
     }
 
-    function compareHash(shArray, a, b) {
+    function compareHash(shArray, a, b, hashWords) {
       var sh32 = new Uint32Array(shArray.buffer);
-      for (var i = 0; i < 4; i++) {
-        var va = sh32[a * 4 + i];
-        var vb = sh32[b * 4 + i];
+      for (var i = 0; i < hashWords; i++) {
+        var va = sh32[a * hashWords + i];
+        var vb = sh32[b * hashWords + i];
         if (va < vb) {
           return -1;
         }
@@ -95,43 +104,43 @@
       return 0;
     }
 
-    function exchangeHash(shArray, a, b) {
-      for (var i = 0; i < 16; i++) {
-        var temp = shArray[a * 16 + i];
-        shArray[a * 16 + i] = shArray[b * 16 + i];
-        shArray[b * 16 + i] = temp;
+    function exchangeHash(shArray, a, b, hashBytes) {
+      for (var i = 0; i < hashBytes; i++) {
+        var temp = shArray[a * hashBytes + i];
+        shArray[a * hashBytes + i] = shArray[b * hashBytes + i];
+        shArray[b * hashBytes + i] = temp;
       }
     }
 
-    function quickSort(shArray, indexArray, from, to) {
+    function quickSort(shArray, indexArray, from, to, hashWords, hashBytes) {
       if (from >= to) return;
       var i = from;
       for (var j = from + 1; j <= to; j++) {
-        if (compareHash(shArray, j, from) < 0) {
+        if (compareHash(shArray, j, from, hashWords) < 0) {
           i = i + 1;
-          exchangeHash(shArray, i, j);
+          exchangeHash(shArray, i, j, hashBytes);
           var temp = indexArray[i];
           indexArray[i] = indexArray[j];
           indexArray[j] = temp;
         }
       }
-      exchangeHash(shArray, i, from);
+      exchangeHash(shArray, i, from, hashBytes);
       var temp = indexArray[i];
       indexArray[i] = indexArray[from];
       indexArray[from] = temp;
 
-      quickSort(shArray, indexArray, from, i - 1);
-      quickSort(shArray, indexArray, i + 1, to);
+      quickSort(shArray, indexArray, from, i - 1, hashWords, hashBytes);
+      quickSort(shArray, indexArray, i + 1, to, hashWords, hashBytes);
     }
 
-    function dedupSortedHash(shArray, indexArray, indexDedupArray) {
+    function dedupSortedHash(shArray, indexArray, indexDedupArray, hashWords, hashBytes) {
       var dedup_len = indexArray.length;
       for (var i = 1; i < dedup_len; i++) {
-        if (compareHash(shArray, i, i - 1) == 0) {
+        if (compareHash(shArray, i, i - 1, hashWords) == 0) {
           var temp_index = indexArray[i];
           var temp_index_dup = indexArray[i - 1];
           for (var j = i; j < indexArray.length - 1; j++) {
-            exchangeHash(shArray, j, j + 1);
+            exchangeHash(shArray, j, j + 1, hashBytes);
             indexArray[j] = indexArray[j + 1];
             indexDedupArray[j] = indexDedupArray[j + 1];
           }
@@ -144,20 +153,39 @@
       return dedup_len;
     }
 
-    function sortHash(hashes) {
+    function sortHash(hashes, hashBytes) {
       var len = hashes.length;
-      var shArray = new Uint8Array(16 * len);
+      var shArray = new Uint8Array(hashBytes * len);
       var indexArray = new Uint32Array(len);
       var indexDedupArray = new Uint32Array(len);
+      var hashWords = hashBytes / 4;
+
       for (let j = 0; j < len; j++) {
         indexArray[j] = j;
-        for (let i = 0; i < 16; i++) {
-          shArray[j * 16 + i] = parseInt(hashes[j].substr(i * 2, 2), 16);
+        for (let i = 0; i < hashBytes; i++) {
+          shArray[j * hashBytes + i] = parseInt(hashes[j].substr(i * 2, 2), 16);
+        }
+
+        // Handle Big Endian for SHA256 (32 bytes)
+        // We swap bytes in each 4-byte word so that Little Endian load matches Big Endian value
+        if (hashBytes === 32) {
+          for (let k = 0; k < 32; k += 4) {
+            let idx = j * 32 + k;
+            let b0 = shArray[idx];
+            let b1 = shArray[idx + 1];
+            let b2 = shArray[idx + 2];
+            let b3 = shArray[idx + 3];
+            shArray[idx] = b3;
+            shArray[idx + 1] = b2;
+            shArray[idx + 2] = b1;
+            shArray[idx + 3] = b0;
+          }
         }
       }
+
       // quick sort
-      quickSort(shArray, indexArray, 0, len - 1);
-      var dedup_len = dedupSortedHash(shArray, indexArray, indexDedupArray);
+      quickSort(shArray, indexArray, 0, len - 1, hashWords, hashBytes);
+      var dedup_len = dedupSortedHash(shArray, indexArray, indexDedupArray, hashWords, hashBytes);
       return [shArray, indexArray, indexDedupArray, dedup_len];
     }
 
@@ -173,13 +201,17 @@
       const label_search = document.getElementById('label_search');
       const bar_complete = document.getElementById('bar_complete');
       const label_complete = document.getElementById('label_complete');
+      const algorithm = document.getElementById('algorithm').value;
+
+      const hashLength = algorithm === 'MD5' ? 32 : 64;
+      const hashBytes = algorithm === 'MD5' ? 16 : 32;
 
       // process inputs
-      const hashes = progressHashString(document.getElementById("input").value);
+      const hashes = progressHashString(document.getElementById("input").value, hashLength);
 
       if (hashes.length === 0) {
         info.hidden = false;
-        info.innerText = "Please enter at least one valid 32-character MD5 hash.";
+        info.innerText = "Please enter at least one valid " + hashLength + "-character " + algorithm + " hash.";
         output.hidden = true;
         bar_search.hidden = true;
         label_search.hidden = true;
@@ -188,7 +220,7 @@
         return;
       }
 
-      const [shArray, indexArray, indexDedupArray, dedup_len] = sortHash(hashes);
+      const [shArray, indexArray, indexDedupArray, dedup_len] = sortHash(hashes, hashBytes);
 
       info.hidden = false;
       info.innerText = "find " + dedup_len + " valid unique hashes";
@@ -197,13 +229,17 @@
       // Allocate GPU buffer
       // 0. SortedHash
       const bufHash = device.createBuffer({
-        size: 16 * dedup_len,
+        size: hashBytes * dedup_len,
         usage: GPUBufferUsage.STORAGE,
         mappedAtCreation: true,
       });
-      new Uint8Array(bufHash.getMappedRange()).set(shArray.slice(0, 16 * dedup_len));
+      new Uint8Array(bufHash.getMappedRange()).set(shArray.slice(0, hashBytes * dedup_len));
       bufHash.unmap();
-      // 1. mobile data
+      // 1. mobile data (we output 3 words = 12 bytes per result, padded to 16 bytes vec3<u32>? No, array<vec3<u32>> implies alignment. vec3 is usually padded to 16 bytes in arrays)
+      // Wait, in previous code: size: 16 * dedup_len. vec3<u32> is 12 bytes but typical array alignment (std140) in storage buffers might be 16 bytes.
+      // WGSL Default memory layout (storage class) for array<vec3<u32>> usually has 16-byte stride.
+      // previous implementation used 16 * dedup_len. I will stick to that.
+
       const bufData = device.createBuffer({
         size: 16 * dedup_len,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
@@ -216,7 +252,7 @@
       const numbersSize = 10000;
       const numbersArray = new Uint8Array(numbersSize * 4);
       for (let i = 0; i < numbersSize; i++) {
-        numbersArray[i * 4]     = Math.floor(i / 1000) + 48;
+        numbersArray[i * 4] = Math.floor(i / 1000) + 48;
         numbersArray[i * 4 + 1] = Math.floor(i / 100) % 10 + 48;
         numbersArray[i * 4 + 2] = Math.floor(i / 10) % 10 + 48;
         numbersArray[i * 4 + 3] = i % 10 + 48;
@@ -287,7 +323,7 @@
 
       // Compute shader code
       const shaderModule = device.createShaderModule({
-        code: wgslSource
+        code: getWgslSource(algorithm)
       });
 
       const computePipeline = device.createComputePipeline({
@@ -372,7 +408,7 @@
         count = new Uint32Array(bufParamsRead.getMappedRange())[1];
         bufParamsRead.unmap();
 
-        await updateProgress(PREFIX_LIST.length, i+1, dedup_len, count, startTime);
+        await updateProgress(PREFIX_LIST.length, i + 1, dedup_len, count, startTime);
       };
 
       // read data
